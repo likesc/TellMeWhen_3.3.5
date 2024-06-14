@@ -23,6 +23,11 @@ if LiCD and LiCD.GetItemCooldown then
 	end
 end
 
+
+local CooldownFrame_SetTimer = CooldownFrame_SetTimer or function(self, start, duration, enable, charges, maxCharges)
+    self:SetCooldown(start, duration, charges, maxCharges)
+end
+
 local function TMW_IsSpellInRange(spellId, unit)
 	local spellName = tonumber(spellId) and GetSpellInfo(spellId) or spellId
 	return IsSpellInRange(spellName, unit)
@@ -110,8 +115,10 @@ local function TellMeWhen_CreateGroup(name, parent, ...)
 	group:SetSize(1, 1)
 	group:SetToplevel(true)
 	group:SetMovable(true)
-	if select(1, ...) then group:SetPoint(...) end
-
+	if select(1, ...) then
+		group:ClearAllPoints()
+		group:SetPoint(...)
+	end
 	local t = group:CreateTexture(nil, "BACKGROUND")
 	t:SetTexture(0, 0, 0, 0)
 	t:SetVertexColor(0.6, 0.6, 0.6)
@@ -250,6 +257,7 @@ do
 
 		local newX = scalingFrame.oldX * scalingFrame.oldScale / newScale
 		local newY = scalingFrame.oldY * scalingFrame.oldScale / newScale
+		scalingFrame:ClearAllPoints()
 		scalingFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", newX, newY)
 	end
 
@@ -349,8 +357,8 @@ local function TellMeWhen_Icon_SpellCooldown_OnUpdate(self, elapsed)
 		local name = self.Name[1] or ""
 		local _, timeLeft, _ = GetSpellCooldown(name)
 		local inrange = TMW_IsSpellInRange(name, self.Unit)
-		if LiCD and LiCD.talentsRev[name] then
-			name = LiCD.talentsRev[name]
+		if LiCD and LiCD.talents[name] then
+			name = LiCD.talents[name]
 			timeLeft = 0
 		end
 		local _, nomana = IsUsableSpell(name)
@@ -427,15 +435,15 @@ local function TellMeWhen_Icon_BuffCheck(icon)
 			local buffName, iconTexture, count, duration, expirationTime
 			local auraId = tonumber(iName)
 			if auraId then
+				buffName, iconTexture, count, _, duration, expirationTime = func(icon.Unit, auraId, filter)
+			else
 				for i = 1, 32 do
-					local name, _, tex, stack, _, dur, expirers, _, _, _, spellId = func(icon.Unit, i, nil, filter)
-					if name and spellId and spellId == auraId then
+					local name, tex, stack, _, dur, expirers = func(icon.Unit, i, filter)
+					if name and name == iName then
 						buffName, iconTexture, count, duration, expirationTime = name, tex, stack, dur, expirers
 						break
 					end
 				end
-			else
-				buffName, _, iconTexture, count, _, duration, expirationTime = func(icon.Unit, iName, nil, filter)
 			end
 
 			if buffName then
@@ -650,19 +658,19 @@ do
 			_G[this:GetName() .. "EditBox"]:SetText(text)
 			_G[this:GetName() .. "EditBox"]:SetFocus()
 		end,
-		OnAccept = function(iconNumber)
-			local text = _G[this:GetParent():GetName() .. "EditBox"]:GetText()
+		OnAccept = function(this)
+			local text = _G[this:GetName() .. "EditBox"]:GetText()
 			core:IconMenu_ChooseName(text)
 		end,
-		EditBoxOnEnterPressed = function(iconNumber)
+		EditBoxOnEnterPressed = function(this)
 			local text = _G[this:GetParent():GetName() .. "EditBox"]:GetText()
 			core:IconMenu_ChooseName(text)
 			this:GetParent():Hide()
 		end,
-		EditBoxOnEscapePressed = function()
+		EditBoxOnEscapePressed = function(this)
 			this:GetParent():Hide()
 		end,
-		OnHide = function()
+		OnHide = function(this)
 			if _G.ChatFrameEditBox and _G.ChatFrameEditBox:IsVisible() then
 				_G.ChatFrameEditBox:SetFocus()
 			end
@@ -772,7 +780,7 @@ do
 
 	function core:Icon_OnMouseDown(this, button)
 		if button == "RightButton" then
-			PlaySound("UChatScrollButton")
+			PlaySound(1115) -- SOUNDKIT.U_CHAT_SCROLL_BUTTON
 			currentIcon.iconID = this:GetID()
 			currentIcon.groupID = this:GetParent():GetID()
 			ToggleDropDownMenu(1, nil, _G[this:GetName() .. "DropDown"], "cursor", 0, 0)
@@ -904,14 +912,14 @@ do
 	function core:IconMenu_ToggleSetting()
 		local groupID = currentIcon.groupID
 		local iconID = currentIcon.iconID
-		DB.Groups[groupID].Icons[iconID][this.value] = this.checked
+		DB.Groups[groupID].Icons[iconID][self.value] = self.checked
 		core:Icon_Update(_G["TellMeWhen_Group" .. groupID .. "_Icon" .. iconID], groupID, iconID)
 	end
 
 	function core:IconMenu_ChooseSetting()
 		local groupID = currentIcon.groupID
 		local iconID = currentIcon.iconID
-		DB.Groups[groupID].Icons[iconID][UIDROPDOWNMENU_MENU_VALUE] = this.value
+		DB.Groups[groupID].Icons[iconID][UIDROPDOWNMENU_MENU_VALUE] = self.value
 		core:Icon_Update(_G["TellMeWhen_Group" .. groupID .. "_Icon" .. iconID], groupID, iconID)
 		if UIDROPDOWNMENU_MENU_VALUE == "Type" then
 			CloseDropDownMenus()
@@ -963,6 +971,7 @@ function core:Group_Update(groupID)
 					icon = TellMeWhen_CreateIcon(iconName, group, iconWidth, iconHeight)
 				elseif icon:GetHeight() ~= iconHeight or icon:GetWidth() ~= iconWidth then
 					TellMeWhen_ResizeIcon(icon, iconWidth, iconHeight)
+					icon:ClearAllPoints()
 				end
 				icon:SetID(iconID)
 				icon:Show()
@@ -989,6 +998,7 @@ function core:Group_Update(groupID)
 
 		group:SetScale(scale)
 		local lastIcon = groupName .. "_Icon" .. (rows * columns)
+		resizeButton:ClearAllPoints()
 		resizeButton:SetPoint("BOTTOMRIGHT", lastIcon, "BOTTOMRIGHT", 3, -3)
 		if locked then
 			resizeButton:Hide()
@@ -1081,8 +1091,8 @@ function core:Icon_Update(icon, groupID, iconID)
 		if iconType == "cooldown" then
 			if CooldownType == "spell" then
 				local spell = icon.Name[1]
-				if LiCD and LiCD.talentsRev[icon.Name[1]] then
-					spell = LiCD.talentsRev[icon.Name[1]]
+				if LiCD and LiCD.talents[icon.Name[1]] then
+					spell = LiCD.talents[icon.Name[1]]
 				end
 				if GetSpellCooldown(spell or "") then
 					icon.texture:SetTexture(TMW_GetSpellTexture(spell) or select(3, GetSpellInfo(spell)))
@@ -1261,7 +1271,7 @@ function core:LockToggle()
 	else
 		DB.Locked = true
 	end
-	PlaySound("UChatScrollButton")
+	PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
 	core:Update()
 end
 
